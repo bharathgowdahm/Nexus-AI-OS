@@ -1,5 +1,5 @@
 """
-NEXUS with Real OpenAI + Streamlit Secrets Support
+NEXUS with Real OpenAI + Streamlit Secrets Support - FIXED
 """
 import asyncio, os
 from typing import Dict
@@ -14,8 +14,13 @@ def get_key(override=""):
             return st.secrets["OPENAI_API_KEY"]
     except:
         pass
-    from nexus_core.config import OPENAI_API_KEY
-    return OPENAI_API_KEY or os.getenv("OPENAI_API_KEY", "")
+    # Try dotenv
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except:
+        pass
+    return os.getenv("OPENAI_API_KEY", "")
 
 class AgentOrchestrator:
     def __init__(self, api_key_override=""):
@@ -25,7 +30,7 @@ class AgentOrchestrator:
 
     async def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
         if not self.client:
-            return f"[MOCK MODE - Add key in Streamlit Secrets]\nTask: {user_prompt[:300]}..."
+            return f"[MOCK MODE - Add key in Streamlit Secrets]\nSystem: {system_prompt[:80]}\nTask: {user_prompt[:300]}..."
         try:
             resp = await self.client.chat.completions.create(
                 model=self.model,
@@ -47,7 +52,7 @@ class AgentOrchestrator:
         return await self._call_llm("You are Researcher Agent. Find best practices.", f"Research: {task}")
 
     async def coder(self, task: str, research: str) -> str:
-        system = "You are senior Python engineer. Generate PRODUCTION-READY Python code with FastAPI, type hints, docstrings. Return ONLY code in ```python block."
+        system = "You are senior Python engineer. Generate PRODUCTION-READY Python code with FastAPI, type hints, docstrings. Return ONLY code in python block."
         return await self._call_llm(system, f"Task: {task}\nResearch: {research}\nGenerate code:")
 
     async def critic(self, code: str) -> str:
