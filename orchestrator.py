@@ -1,22 +1,31 @@
 """
-NEXUS with Real OpenAI Integration - Professional Grade
+NEXUS with Real OpenAI + Streamlit Secrets Support
 """
 import asyncio, os
 from typing import Dict
 from openai import AsyncOpenAI
-from nexus_core.config import OPENAI_API_KEY
+
+def get_key(override=""):
+    if override:
+        return override
+    try:
+        import streamlit as st
+        if "OPENAI_API_KEY" in st.secrets:
+            return st.secrets["OPENAI_API_KEY"]
+    except:
+        pass
+    from nexus_core.config import OPENAI_API_KEY
+    return OPENAI_API_KEY or os.getenv("OPENAI_API_KEY", "")
 
 class AgentOrchestrator:
-    def __init__(self):
-        api_key = OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
+    def __init__(self, api_key_override=""):
+        api_key = get_key(api_key_override)
         self.client = AsyncOpenAI(api_key=api_key) if api_key else None
-        self.model = "gpt-4o-mini"  # Fast, cheap, trending
+        self.model = "gpt-4o-mini"
 
     async def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
         if not self.client:
-            # Fallback mock if no key (so app doesn't crash)
-            return f"[MOCK - Add OPENAI_API_KEY to .env to enable real AI]\nSystem: {system_prompt[:100]}...\nTask: {user_prompt[:200]}"
-        
+            return f"[MOCK MODE - Add key in Streamlit Secrets]\nTask: {user_prompt[:300]}..."
         try:
             resp = await self.client.chat.completions.create(
                 model=self.model,
@@ -29,41 +38,24 @@ class AgentOrchestrator:
             )
             return resp.choices[0].message.content
         except Exception as e:
-            return f"Error: {str(e)} - Check your API key and billing"
+            return f"Error: {str(e)}"
 
     async def planner(self, task: str) -> str:
-        system = "You are NEXUS Planner Agent. You are expert at breaking complex software tasks into 3-4 clear steps. Be concise, professional, use bullet points."
-        return await self._call_llm(system, f"Plan this task: {task}")
+        return await self._call_llm("You are NEXUS Planner Agent. Break tasks into 3-4 clear steps.", f"Plan: {task}")
 
     async def researcher(self, task: str) -> str:
-        system = "You are NEXUS Researcher Agent. You find best practices, libraries, and patterns. Return 3-5 key insights."
-        return await self._call_llm(system, f"Research best practices for: {task}")
+        return await self._call_llm("You are Researcher Agent. Find best practices.", f"Research: {task}")
 
     async def coder(self, task: str, research: str) -> str:
-        system = """You are NEXUS Coder Agent - senior Python engineer.
-Generate PRODUCTION-READY, CLEAN, commented Python code.
-- Use FastAPI, Pydantic, type hints
-- Include docstrings
-- Handle errors
-- Return ONLY code in ```python block, no extra explanation."""
-        user = f"Task: {task}\n\nResearch context: {research}\n\nGenerate complete working code:"
-        return await self._call_llm(system, user)
+        system = "You are senior Python engineer. Generate PRODUCTION-READY Python code with FastAPI, type hints, docstrings. Return ONLY code in ```python block."
+        return await self._call_llm(system, f"Task: {task}\nResearch: {research}\nGenerate code:")
 
     async def critic(self, code: str) -> str:
-        system = "You are NEXUS Critic Agent. Review code for security, performance, bugs. Score out of 100 and give 2 suggestions."
-        return await self._call_llm(system, f"Review this code:\n{code[:3000]}")
+        return await self._call_llm("You are Critic Agent. Review for security & quality. Score /100.", f"Review:\n{code[:3000]}")
 
     async def execute_full(self, task: str, rag_context: str = "") -> Dict:
         plan = await self.planner(task)
-        research = await self.researcher(task + f"\nContext: {rag_context}")
+        research = await self.researcher(task)
         code = await self.coder(task, research + "\n" + rag_context)
         critique = await self.critic(code)
-        return {
-            "task": task,
-            "plan": plan,
-            "research": research,
-            "code": code,
-            "critique": critique,
-            "model": self.model,
-            "status": "completed"
-        }
+        return {"task": task, "plan": plan, "research": research, "code": code, "critique": critique, "status": "completed"}
