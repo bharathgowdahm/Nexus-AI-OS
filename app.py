@@ -1,98 +1,142 @@
-import gradio as gr
+"""
+NEXUS AI OS - Streamlit Cloud Edition
+Professional, publish-ready, secret-safe
+"""
+import streamlit as st
+import os, asyncio
 from nexus_core.orchestrator import AgentOrchestrator
 from nexus_core.rag import RAGEngine
-from nexus_core.config import OPENAI_API_KEY
-import os
 
-orchestrator = AgentOrchestrator()
-rag_engine = RAGEngine()
+st.set_page_config(
+    page_title="NEXUS AI OS",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-api_status = "🟢 Real OpenAI Connected" if OPENAI_API_KEY else "🟡 Mock Mode (Add API Key in .env)"
+# --- CONFIG: Works locally (.env) AND on Streamlit Cloud (Secrets) ---
+def get_api_key():
+    # 1. Try Streamlit secrets (for cloud)
+    try:
+        if "OPENAI_API_KEY" in st.secrets:
+            return st.secrets["OPENAI_API_KEY"]
+    except:
+        pass
+    # 2. Try env variable (for local)
+    return os.getenv("OPENAI_API_KEY", "")
 
-async def handle_task(prompt: str, history):
-    if not prompt.strip():
-        return history, ""
-    history = history + [(prompt, f"🧠 **Planner (GPT-4o-mini):** Thinking...")]
-    yield history, ""
+api_key = get_api_key()
+
+# --- CSS for pro look ---
+st.markdown("""
+<style>
+    .main { background-color: #0a0a0b; }
+    .stButton>button { border-radius: 20px; }
+    .agent-card { background: rgba(255,255,255,0.05); border-radius: 16px; padding: 16px; border: 1px solid rgba(255,255,255,0.1); }
+</style>
+""", unsafe_allow_html=True)
+
+# --- Init ---
+if "orchestrator" not in st.session_state:
+    st.session_state.orchestrator = AgentOrchestrator(api_key_override=api_key)
+    st.session_state.rag = RAGEngine()
+    st.session_state.history = []
+
+orchestrator = st.session_state.orchestrator
+rag_engine = st.session_state.rag
+
+# --- SIDEBAR ---
+with st.sidebar:
+    st.title("🧠 NEXUS")
+    st.caption("Autonomous AI OS v1.0")
     
-    # Get RAG context
+    if api_key:
+        st.success("🟢 OpenAI Connected")
+    else:
+        st.warning("🟡 Mock Mode - Add API Key")
+        st.info("Go to Streamlit Cloud → App → Settings → Secrets and add:\nOPENAI_API_KEY = \"sk-proj-...\"")
+    
+    st.divider()
+    st.subheader("📚 Second Brain (RAG)")
+    uploaded = st.file_uploader("Upload docs (.txt, .py, .md)", type=["txt","py","md"])
+    if uploaded:
+        content = uploaded.read().decode("utf-8", errors="ignore")[:15000]
+        doc_id = rag_engine.ingest(content, {"source": uploaded.name})
+        st.success(f"Indexed: {uploaded.name} | Total: {rag_engine.count()}")
+    
+    query = st.text_input("Search memory")
+    if query:
+        results = rag_engine.search(query, k=3)
+        for r in results:
+            st.markdown(f"**{r['meta'].get('source','doc')}**\n{r['text'][:200]}...")
+    
+    st.divider()
+    st.caption("Built by Bharath | Trending 2026")
+
+# --- MAIN ---
+st.title("What should NEXUS build today?")
+st.caption("Complex multi-agent swarm (Planner → Researcher → Coder → Critic) • Simple UI")
+
+prompt = st.text_area("Prompt", placeholder="e.g. Build a FastAPI todo API with JWT auth, SQLAlchemy, and pytest...", height=100)
+col1, col2 = st.columns([1,4])
+with col1:
+    run = st.button("🚀 Generate with Agent Swarm", type="primary", use_container_width=True)
+with col2:
+    clear = st.button("Clear History")
+
+if clear:
+    st.session_state.history = []
+    st.rerun()
+
+async def run_agents(task: str):
     rag_ctx = ""
-    rag_results = rag_engine.search(prompt, k=3)
+    rag_results = rag_engine.search(task, k=3)
     if rag_results:
         rag_ctx = "\n".join([r['text'][:400] for r in rag_results])
     
-    plan = await orchestrator.planner(prompt)
-    history[-1] = (prompt, f"### 🧠 Plan\n{plan}\n\n---\n🔍 **Researcher:** Searching best practices...")
-    yield history, ""
+    with st.status("🤖 Agent Swarm Working...", expanded=True) as status:
+        st.write("🧠 **Planner:** Breaking down task...")
+        plan = await orchestrator.planner(task)
+        st.write(plan)
+        
+        st.write("🔍 **Researcher:** Finding best practices...")
+        research = await orchestrator.researcher(task)
+        st.write(research)
+        
+        st.write("💻 **Coder:** Generating production code...")
+        code = await orchestrator.coder(task, research + "\n" + rag_ctx)
+        
+        st.write("✅ **Critic:** Reviewing...")
+        critique = await orchestrator.critic(code)
+        status.update(label="✅ Done! Ready to ship", state="complete", expanded=False)
     
-    research = await orchestrator.researcher(prompt + f"\nContext: {rag_ctx[:500]}")
-    history[-1] = (prompt, f"### 🧠 Plan\n{plan}\n\n### 🔍 Research\n{research}\n\n---\n💻 **Coder Agent writing code...**")
-    yield history, ""
+    return plan, research, code, critique, len(rag_results)
+
+if run and prompt:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    plan, research, code, critique, rag_count = loop.run_until_complete(run_agents(prompt))
     
-    code = await orchestrator.coder(prompt, research + "\n" + rag_ctx)
-    critique = await orchestrator.critic(code)
+    st.session_state.history.append({
+        "prompt": prompt,
+        "plan": plan,
+        "research": research,
+        "code": code,
+        "critique": critique
+    })
     
-    final_md = f"""### 🧠 Plan
-{plan}
+    st.divider()
+    st.subheader(f"Result for: {prompt}")
+    tab1, tab2, tab3, tab4 = st.tabs(["🧠 Plan", "🔍 Research", "💻 Code", "✅ Review"])
+    with tab1: st.markdown(plan)
+    with tab2: st.markdown(research)
+    with tab3: st.code(code, language="python")
+    with tab4: st.markdown(critique)
 
-### 🔍 Research
-{research}
-
-### 💻 Generated Code
-{code}
-
-### ✅ Critic Review
-{critique}
-
----
-*Model: gpt-4o-mini | RAG docs: {len(rag_results)} | Status: {api_status}*
-"""
-    history[-1] = (prompt, final_md)
-    yield history, ""
-
-def handle_ingest(file):
-    if file is None: return "No file"
-    try:
-        content = open(file.name, 'r', encoding='utf-8', errors='ignore').read()[:15000]
-        doc_id = rag_engine.ingest(content, {"source": os.path.basename(file.name)})
-        return f"✅ Indexed: {file.name} | Total: {rag_engine.count()}"
-    except Exception as e:
-        return f"Error: {e}"
-
-def handle_search(query):
-    results = rag_engine.search(query, k=5)
-    if not results: return "No results. Upload docs first."
-    return "\n\n---\n\n".join([f"**{r['meta'].get('source','doc')}**\n{r['text'][:300]}" for r in results])
-
-with gr.Blocks(theme=gr.themes.Soft(primary_hue="violet", neutral_hue="slate"), title="NEXUS AI OS") as demo:
-    gr.Markdown(f"""
-# 🧠 NEXUS — Autonomous AI OS + OpenAI
-**Status:** {api_status} | **Model:** gpt-4o-mini | **Agents:** 4 online
-> Complex swarm, simple UI. Professional GitHub-ready.
-""")
-    with gr.Row():
-        with gr.Column(scale=3):
-            chatbot = gr.Chatbot(height=600, label="Agent Workspace", bubble_full_width=False, markdown=True)
-            prompt = gr.Textbox(label="What should NEXUS build?", placeholder="e.g. Build a FastAPI todo app with JWT auth and pytest...", lines=3)
-            with gr.Row():
-                clear = gr.Button("Clear")
-                run_btn = gr.Button("🚀 Generate with GPT-4o + Agents", variant="primary")
-        with gr.Column(scale=1):
-            gr.Markdown("### 📚 Second Brain")
-            file_input = gr.File(label="Upload .txt / .py / .md")
-            ingest_btn = gr.Button("Index to Memory")
-            ingest_status = gr.Textbox(label="Status")
-            gr.Markdown("### 🔍 Search Memory")
-            search_box = gr.Textbox(placeholder="Search...")
-            search_btn = gr.Button("Search")
-            search_results = gr.Markdown()
-            gr.Markdown(f"### ⚙️ Config\n{api_status}\n\nAdd key in `.env` file")
-
-    run_btn.click(handle_task, [prompt, chatbot], [chatbot, prompt])
-    prompt.submit(handle_task, [prompt, chatbot], [chatbot, prompt])
-    clear.click(lambda: [], None, chatbot)
-    ingest_btn.click(handle_ingest, file_input, ingest_status)
-    search_btn.click(handle_search, search_box, search_results)
-
-if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860, show_error=True)
+# Show history
+if st.session_state.history:
+    st.divider()
+    st.subheader("📜 History")
+    for i, h in enumerate(reversed(st.session_state.history)):
+        with st.expander(f"{h['prompt'][:60]}..."):
+            st.code(h['code'], language="python")
