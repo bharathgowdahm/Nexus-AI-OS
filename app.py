@@ -1,119 +1,91 @@
 """
-NEXUS AI OS - GEMINI FREE EDITION
-100% FREE - Uses Google Gemini 2.0 Flash (free tier: 1500 req/day)
-No billing, no card needed
+NEXUS AI OS - GEMINI FREE EDITION - FIXED v3
+Uses google-generativeai official SDK - works with all new models
+Models: gemini-2.5-flash (latest), gemini-2.0-flash, gemini-1.5-flash
 """
 import streamlit as st
-import os, asyncio
-from openai import AsyncOpenAI
+import os
 
 st.set_page_config(page_title="NEXUS AI OS - Gemini FREE", page_icon="🧠", layout="wide")
 
-def get_client():
+def get_api_key():
     api_key = ""
-    base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
-    model = "gemini-2.0-flash"
-    
     try:
         if "GOOGLE_API_KEY" in st.secrets:
             api_key = st.secrets["GOOGLE_API_KEY"]
         elif "GEMINI_API_KEY" in st.secrets:
             api_key = st.secrets["GEMINI_API_KEY"]
-        elif "GOOGLE_API_KEY" in st.secrets.keys():
-            api_key = st.secrets["GOOGLE_API_KEY"]
     except:
         pass
-    
     if not api_key:
         api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or ""
-    
-    # Fallback: if user still has OpenRouter/Groq, use it
-    if not api_key:
-        try:
-            if "OPENROUTER_API_KEY" in st.secrets:
-                api_key = st.secrets["OPENROUTER_API_KEY"]
-                base_url = "https://openrouter.ai/api/v1"
-                model = "deepseek/deepseek-r1:free"
-            elif "GROQ_API_KEY" in st.secrets:
-                api_key = st.secrets["GROQ_API_KEY"]
-                base_url = "https://api.groq.com/openai/v1"
-                model = "llama-3.3-70b-versatile"
-        except:
-            pass
-    
     try:
         from dotenv import load_dotenv
         load_dotenv()
         if not api_key:
-            api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("OPENROUTER_API_KEY") or os.getenv("GROQ_API_KEY") or ""
+            api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or ""
     except:
         pass
-    
-    return api_key, base_url, model
+    return api_key
 
-api_key, base_url, model_name = get_client()
+api_key = get_api_key()
+MODEL = "gemini-2.5-flash"  # Latest stable free model 2026
+
+def call_gemini(system_prompt, user_prompt, model_name=MODEL):
+    if not api_key:
+        return "[MOCK MODE - Add GOOGLE_API_KEY]\nGet from https://aistudio.google.com/app/apikey"
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        
+        # Try models in order: 2.5-flash -> 2.0-flash -> 1.5-flash
+        models_to_try = [
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-exp",
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-latest",
+            "gemini-1.5-pro"
+        ]
+        
+        last_error = ""
+        for m in models_to_try:
+            try:
+                model = genai.GenerativeModel(m, system_instruction=system_prompt)
+                response = model.generate_content(user_prompt)
+                return response.text
+            except Exception as e:
+                last_error = str(e)
+                if "404" in last_error or "not found" in last_error.lower() or "not supported" in last_error.lower():
+                    continue
+                # If other error, break
+                if "quota" in last_error.lower() or "429" in last_error:
+                    return f"Quota exceeded: {last_error} - wait 1 min or create new key"
+                continue
+        return f"Error: All models failed. Last: {last_error}"
+    except Exception as e:
+        return f"Error: {e}"
 
 class AgentOrchestrator:
-    def __init__(self, api_key="", base_url=None, model="gemini-2.0-flash"):
-        if api_key:
-            self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        else:
-            self.client = None
-        self.model = model
+    def __init__(self, api_key=""):
+        self.api_key = api_key
 
-    async def _call(self, system, user):
-        if not self.client:
-            return """[MOCK MODE - Add Gemini FREE key]
+    def planner(self, task):
+        return call_gemini("You are NEXUS Planner Agent. Break tasks into 3-4 clear steps with tech stack.", f"Plan: {task}")
 
-1. Go to: https://aistudio.google.com/app/apikey
-2. Click "Create API Key" (FREE, no card)
-3. Copy key starting with "AI..."
-4. In Streamlit: Manage app -> Settings -> Secrets -> Add:
+    def researcher(self, task):
+        return call_gemini("You are Researcher Agent. Find best practices, libraries, architecture.", f"Research: {task}")
 
-GOOGLE_API_KEY = "AI...your_key..."
+    def coder(self, task, research):
+        return call_gemini("You are senior Python engineer. Generate PRODUCTION-READY Python code with FastAPI, type hints, docstrings, error handling. Return ONLY code in python block.", f"Task: {task}\nResearch: {research}\nGenerate code:")
 
-5. Save -> Reboot -> Done!
-"""
-        try:
-            resp = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role":"system","content":system},
-                    {"role":"user","content":user}
-                ],
-                temperature=0.7,
-                max_tokens=2000
-            )
-            return resp.choices[0].message.content
-        except Exception as e:
-            # If gemini model fails, try gemini-1.5-flash fallback
-            try:
-                resp = await self.client.chat.completions.create(
-                    model="gemini-1.5-flash",
-                    messages=[
-                        {"role":"system","content":system},
-                        {"role":"user","content":user}
-                    ],
-                    temperature=0.7,
-                    max_tokens=2000
-                )
-                return resp.choices[0].message.content
-            except Exception as e2:
-                return f"Error: {e2}. Original: {e}. Make sure GOOGLE_API_KEY is correct and from https://aistudio.google.com/app/apikey"
-
-    async def planner(self, task):
-        return await self._call("You are NEXUS Planner Agent. Break tasks into 3-4 clear professional steps with tech stack.", f"Plan: {task}")
-    async def researcher(self, task):
-        return await self._call("You are Researcher Agent. Find best practices, libraries, architecture.", f"Research: {task}")
-    async def coder(self, task, research):
-        return await self._call("You are senior Python engineer. Generate PRODUCTION-READY Python code with FastAPI, type hints, docstrings, error handling. Return ONLY code in ```python block.", f"Task: {task}\nResearch: {research}\nGenerate code:")
-    async def critic(self, code):
-        return await self._call("You are Critic Agent. Review for security, bugs, performance. Score /100 and suggest fixes.", f"Review:\n{code[:4000]}")
+    def critic(self, code):
+        return call_gemini("You are Critic Agent. Review for security, bugs, performance. Score /100 and suggest fixes.", f"Review:\n{code[:4000]}")
 
 if "rag_docs" not in st.session_state:
     st.session_state.rag_docs = []
 if "orchestrator" not in st.session_state:
-    st.session_state.orchestrator = AgentOrchestrator(api_key=api_key, base_url=base_url, model=model_name)
+    st.session_state.orchestrator = AgentOrchestrator(api_key=api_key)
     st.session_state.history = []
 
 def simple_search(query, docs, k=3):
@@ -129,32 +101,22 @@ orchestrator = st.session_state.orchestrator
 
 with st.sidebar:
     st.title("🧠 NEXUS")
-    st.caption("Gemini FREE Edition • 2.0 Flash")
+    st.caption(f"Gemini FREE • {MODEL}")
     if api_key:
-        if "AI" in api_key[:3] or "google" in base_url or "generativelanguage" in base_url:
-            st.success(f"🟢 Gemini FREE Connected\n{model_name}")
-        else:
-            st.success(f"🟢 Connected\n{model_name}")
+        st.success(f"🟢 Gemini FREE Connected\n{MODEL}\nKey: {api_key[:10]}...")
     else:
         st.warning("🟡 Mock Mode")
         st.markdown("""
-**Get FREE Gemini API Key:**
+**Get FREE Gemini Key:**
 
-**Step 1:** Go to link:
-**[aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)**
+**Link:** [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
 
-**Step 2:** 
-- Login with Google
-- Tap **"Create API Key"**
-- Copy key `AI...`
-
-**Step 3:** 
-- Streamlit -> Manage app -> Settings -> Secrets
-- Paste:
+1. Login → Create API Key
+2. Copy `AI...`
+3. Streamlit → Manage app → Settings → Secrets:
 ```
 GOOGLE_API_KEY = "AI..."
 ```
-- Save -> Reboot
 """)
     st.divider()
     st.subheader("📚 Memory")
@@ -166,9 +128,9 @@ GOOGLE_API_KEY = "AI..."
     st.caption("Built by Bharath | Gemini Free")
 
 st.title("What should NEXUS build today?")
-st.caption(f"Model: {model_name} • Planner → Researcher → Coder → Critic • Gemini FREE")
+st.caption(f"Model: {MODEL} • Planner → Researcher → Coder → Critic • Gemini FREE")
 
-prompt = st.text_area("Prompt", placeholder="e.g. Build a FastAPI todo API with JWT auth, SQLAlchemy, and pytest...", height=120)
+prompt = st.text_area("Prompt", placeholder="e.g. Build a FastAPI todo API with JWT auth...", height=120)
 col1, col2 = st.columns([1,4])
 with col1:
     run = st.button("🚀 Generate with Gemini", type="primary", use_container_width=True)
@@ -179,27 +141,25 @@ if clear:
     st.session_state.history = []
     st.rerun()
 
-async def run_agents(task: str):
+def run_agents(task: str):
     results = simple_search(task, st.session_state.rag_docs)
     rag_ctx = "\n".join([r["content"][:500] for r in results])
     with st.status("🤖 Agent Swarm Working with Gemini...", expanded=True) as status:
         st.write("🧠 Planner...")
-        plan = await orchestrator.planner(task)
+        plan = orchestrator.planner(task)
         st.write(plan)
         st.write("🔍 Researcher...")
-        research = await orchestrator.researcher(task)
+        research = orchestrator.researcher(task)
         st.write(research)
         st.write("💻 Coder...")
-        code = await orchestrator.coder(task, research + "\n" + rag_ctx)
+        code = orchestrator.coder(task, research + "\n" + rag_ctx)
         st.write("✅ Critic...")
-        critique = await orchestrator.critic(code)
+        critique = orchestrator.critic(code)
         status.update(label="✅ Done!", state="complete", expanded=False)
     return plan, research, code, critique
 
 if run and prompt:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    plan, research, code, critique = loop.run_until_complete(run_agents(prompt))
+    plan, research, code, critique = run_agents(prompt)
     st.session_state.history.append({"prompt": prompt, "plan": plan, "research": research, "code": code, "critique": critique})
     st.divider()
     st.subheader(f"Result for: {prompt}")
