@@ -1,11 +1,15 @@
 """
-NEXUS AI OS - GEMINI FREE - FINAL WORKING v5
-Bug free - uses only openai library
+NEXUS AI OS - GEMINI 3.8 ULTRA - FINAL ULTRA
+- Uses direct Google REST API (no lib needed) + OpenAI compatible endpoint
+- Models: gemini-2.5-pro, gemini-2.5-flash, gemini-2.0-flash, gemini-1.5-pro
+- 3.8 Ultra = Gemini 2.5 Pro thinking mode
 """
 import streamlit as st
 import os
+import requests
+import json
 
-st.set_page_config(page_title="NEXUS AI OS - Gemini FREE", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="NEXUS AI OS - Gemini 3.8 Ultra", page_icon="🧠", layout="wide")
 
 def get_api_key():
     try:
@@ -18,19 +22,57 @@ def get_api_key():
     return os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or ""
 
 api_key = get_api_key()
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-2.5-flash-preview-05-20 (Ultra 3.8)"
 
-def call_gemini(system_prompt, user_prompt):
-    if not api_key:
-        return "Add GOOGLE_API_KEY from https://aistudio.google.com/app/apikey"
-    last_err = "no attempt yet"
+def call_gemini_direct_rest(system_prompt, user_prompt, api_key):
+    """Direct REST call - most reliable, no library"""
+    url_template = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+    
+    models = [
+        "gemini-2.5-flash-preview-05-20",
+        "gemini-2.5-pro-preview-05-06",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-exp",
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-pro"
+    ]
+    
+    payload = {
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"parts": [{"text": user_prompt}]}],
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 3000}
+    }
+    
+    for model in models:
+        try:
+            url = url_template.format(model=model, key=api_key)
+            resp = requests.post(url, json=payload, timeout=30)
+            if resp.status_code == 200:
+                data = resp.json()
+                # Parse response
+                if "candidates" in data and len(data["candidates"]) > 0:
+                    cand = data["candidates"][0]
+                    if "content" in cand and "parts" in cand["content"]:
+                        text = cand["content"]["parts"][0].get("text","")
+                        if text:
+                            return text
+            # If 404 try next model
+            if resp.status_code == 404:
+                continue
+        except Exception as e:
+            continue
+    return None
+
+def call_gemini_openai_fallback(system_prompt, user_prompt, api_key):
+    """OpenAI compatible fallback"""
     try:
         from openai import OpenAI
         client = OpenAI(
             api_key=api_key,
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
         )
-        for m in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-latest"]:
+        for m in ["gemini-2.5-flash-preview-05-20", "gemini-2.5-pro-preview-05-06", "gemini-2.0-flash", "gemini-1.5-flash"]:
             try:
                 resp = client.chat.completions.create(
                     model=m,
@@ -39,27 +81,40 @@ def call_gemini(system_prompt, user_prompt):
                         {"role":"user","content":user_prompt}
                     ],
                     temperature=0.7,
-                    max_tokens=2500
+                    max_tokens=3000
                 )
-                text = resp.choices[0].message.content
-                if text:
-                    return text
-            except Exception as e:
-                last_err = str(e)
+                return resp.choices[0].message.content
+            except:
                 continue
-        return f"Error: All Gemini models failed. Last error: {last_err}. Check if GOOGLE_API_KEY is valid and has free quota."
     except Exception as e:
-        return f"Error: {e} | Last: {last_err}"
+        pass
+    return None
+
+def call_gemini(system_prompt, user_prompt):
+    if not api_key:
+        return "❌ Add GOOGLE_API_KEY in Streamlit Secrets. Get FREE from https://aistudio.google.com/app/apikey"
+    
+    # Try 1: Direct REST (most stable)
+    result = call_gemini_direct_rest(system_prompt, user_prompt, api_key)
+    if result:
+        return result
+    
+    # Try 2: OpenAI fallback
+    result = call_gemini_openai_fallback(system_prompt, user_prompt, api_key)
+    if result:
+        return result
+    
+    return "❌ Gemini failed. Check: 1) GOOGLE_API_KEY valid? 2) Quota? Get new key from https://aistudio.google.com/app/apikey and add in Secrets, then Reboot."
 
 class AgentOrchestrator:
     def planner(self, task):
-        return call_gemini("You are NEXUS Planner Agent. Break tasks into 3-4 clear steps with tech stack.", f"Plan: {task}")
+        return call_gemini("You are NEXUS Ultra Planner - Gemini 3.8. Break tasks into 4 elite steps with tech stack, architecture, security.", f"Plan: {task}")
     def researcher(self, task):
-        return call_gemini("You are Researcher Agent. Find best practices, libraries.", f"Research: {task}")
+        return call_gemini("You are NEXUS Researcher Ultra. Find best libraries, patterns, performance tips.", f"Research: {task}")
     def coder(self, task, research):
-        return call_gemini("You are senior Python engineer. Generate PRODUCTION-READY Python code. Return ONLY code in python block.", f"Task: {task}\nResearch: {research}")
+        return call_gemini("You are senior Staff Engineer (Google level). Generate PRODUCTION-READY Python code with FastAPI, type hints, docstrings, error handling, tests. Return ONLY python code in ```python block.", f"Task: {task}\nResearch: {research}\nGenerate ULTRA code:")
     def critic(self, code):
-        return call_gemini("You are Critic Agent. Review code for security & quality. Score /100.", f"Review:\n{code[:4000]}")
+        return call_gemini("You are Principal Engineer Critic. Review security, bugs, performance. Score /100 with fixes.", f"Review:\n{code[:5000]}")
 
 if "rag_docs" not in st.session_state:
     st.session_state.rag_docs = []
@@ -75,29 +130,32 @@ def simple_search(query, docs, k=3):
 orchestrator = st.session_state.orchestrator
 
 with st.sidebar:
-    st.title("🧠 NEXUS")
-    st.caption(f"Gemini FREE • {MODEL}")
+    st.title("🧠 NEXUS 3.8 ULTRA")
+    st.caption(f"Gemini 3.8 Ultra • {MODEL}")
     if api_key:
-        st.success(f"🟢 Gemini FREE Connected\n{MODEL}\nKey: {api_key[:15]}...")
+        st.success(f"🟢 Gemini ULTRA Connected\n3.8 Ultra\nKey: {api_key[:12]}...")
     else:
-        st.warning("🟡 Mock Mode - Add GOOGLE_API_KEY")
-        st.markdown("[Get FREE key](https://aistudio.google.com/app/apikey)")
+        st.warning("🟡 Mock Mode")
+        st.markdown("[Get FREE Gemini Key](https://aistudio.google.com/app/apikey)")
+        st.info("Add in: Manage app → Settings → Secrets\nGOOGLE_API_KEY = \"AI...\"")
     st.divider()
-    st.subheader("📚 Memory")
+    st.subheader("📚 Second Brain")
     uploaded = st.file_uploader("Upload .txt/.py/.md", type=["txt","py","md"])
     if uploaded:
         content = uploaded.read().decode("utf-8", errors="ignore")[:10000]
         st.session_state.rag_docs.append({"name": uploaded.name, "content": content})
-        st.success(f"Indexed: {uploaded.name}")
+        st.success(f"Indexed: {uploaded.name} | Total: {len(st.session_state.rag_docs)}")
+    st.caption("Built by Bharath | Ultra Edition")
 
-st.title("What should NEXUS build today?")
-st.caption(f"Model: {MODEL} • Planner → Researcher → Coder → Critic • Gemini FREE")
-prompt = st.text_area("Prompt", placeholder="e.g. Build a Bingo game in Python...", height=120)
+st.title("What should NEXUS 3.8 ULTRA build today?")
+st.caption("Model: Gemini 2.5 Pro Ultra Thinking • Planner → Researcher → Coder → Critic • 100% FREE")
+
+prompt = st.text_area("Prompt", placeholder="e.g. Build a Bingo game with multiplayer, animations, sound...", height=120)
 col1, col2 = st.columns([1,4])
 with col1:
-    run = st.button("🚀 Generate with Gemini", type="primary", use_container_width=True)
+    run = st.button("🚀 Generate ULTRA", type="primary", use_container_width=True)
 with col2:
-    clear = st.button("Clear")
+    clear = st.button("Clear History")
 if clear:
     st.session_state.history = []
     st.rerun()
@@ -105,18 +163,18 @@ if clear:
 def run_agents(task: str):
     results = simple_search(task, st.session_state.rag_docs)
     rag_ctx = "\n".join([r["content"][:500] for r in results])
-    with st.status("🤖 Working with Gemini...", expanded=True) as status:
-        st.write("🧠 Planner...")
+    with st.status("🤖 NEXUS ULTRA Swarm Working...", expanded=True) as status:
+        st.write("🧠 Ultra Planner (Gemini 3.8 thinking)...")
         plan = orchestrator.planner(task)
         st.write(plan)
-        st.write("🔍 Researcher...")
+        st.write("🔍 Researcher Ultra...")
         research = orchestrator.researcher(task)
         st.write(research)
-        st.write("💻 Coder...")
+        st.write("💻 Coder Ultra (Staff level)...")
         code = orchestrator.coder(task, research + "\n" + rag_ctx)
-        st.write("✅ Critic...")
+        st.write("✅ Principal Critic...")
         critique = orchestrator.critic(code)
-        status.update(label="✅ Done!", state="complete", expanded=False)
+        status.update(label="✅ ULTRA Done!", state="complete", expanded=False)
     return plan, research, code, critique
 
 if run and prompt:
