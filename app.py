@@ -1,7 +1,6 @@
 """
-NEXUS AI OS - GEMINI FREE - ULTRA SIMPLE (No extra libs)
-Uses ONLY openai client + Gemini OpenAI-compatible endpoint
-This NEVER gives "No module" error
+NEXUS AI OS - GEMINI FREE - FINAL WORKING v5
+Bug free - uses only openai library
 """
 import streamlit as st
 import os
@@ -23,14 +22,14 @@ MODEL = "gemini-2.5-flash"
 
 def call_gemini(system_prompt, user_prompt):
     if not api_key:
-        return "Add GOOGLE_API_KEY in Secrets: https://aistudio.google.com/app/apikey"
+        return "Add GOOGLE_API_KEY from https://aistudio.google.com/app/apikey"
+    last_err = "no attempt yet"
     try:
         from openai import OpenAI
         client = OpenAI(
             api_key=api_key,
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
         )
-        # Try latest models first
         for m in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-latest"]:
             try:
                 resp = client.chat.completions.create(
@@ -42,27 +41,25 @@ def call_gemini(system_prompt, user_prompt):
                     temperature=0.7,
                     max_tokens=2500
                 )
-                return resp.choices[0].message.content
+                text = resp.choices[0].message.content
+                if text:
+                    return text
             except Exception as e:
-                err = str(e)
-                if "404" in err or "not found" in err.lower():
-                    continue
-                # If not 404, still return error but try next
-                last_err = err
+                last_err = str(e)
                 continue
-        return f"Error: All models failed. Last: {last_err}"
+        return f"Error: All Gemini models failed. Last error: {last_err}. Check if GOOGLE_API_KEY is valid and has free quota."
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error: {e} | Last: {last_err}"
 
 class AgentOrchestrator:
     def planner(self, task):
-        return call_gemini("You are NEXUS Planner Agent. Break tasks into 3-4 clear steps.", f"Plan: {task}")
+        return call_gemini("You are NEXUS Planner Agent. Break tasks into 3-4 clear steps with tech stack.", f"Plan: {task}")
     def researcher(self, task):
-        return call_gemini("You are Researcher Agent. Find best practices.", f"Research: {task}")
+        return call_gemini("You are Researcher Agent. Find best practices, libraries.", f"Research: {task}")
     def coder(self, task, research):
-        return call_gemini("You are senior Python engineer. Generate PRODUCTION-READY Python code. Return ONLY code.", f"Task: {task}\nResearch: {research}")
+        return call_gemini("You are senior Python engineer. Generate PRODUCTION-READY Python code. Return ONLY code in python block.", f"Task: {task}\nResearch: {research}")
     def critic(self, code):
-        return call_gemini("You are Critic Agent. Review for security & quality. Score /100.", f"Review:\n{code[:4000]}")
+        return call_gemini("You are Critic Agent. Review code for security & quality. Score /100.", f"Review:\n{code[:4000]}")
 
 if "rag_docs" not in st.session_state:
     st.session_state.rag_docs = []
@@ -84,6 +81,7 @@ with st.sidebar:
         st.success(f"🟢 Gemini FREE Connected\n{MODEL}\nKey: {api_key[:15]}...")
     else:
         st.warning("🟡 Mock Mode - Add GOOGLE_API_KEY")
+        st.markdown("[Get FREE key](https://aistudio.google.com/app/apikey)")
     st.divider()
     st.subheader("📚 Memory")
     uploaded = st.file_uploader("Upload .txt/.py/.md", type=["txt","py","md"])
@@ -94,7 +92,7 @@ with st.sidebar:
 
 st.title("What should NEXUS build today?")
 st.caption(f"Model: {MODEL} • Planner → Researcher → Coder → Critic • Gemini FREE")
-prompt = st.text_area("Prompt", placeholder="e.g. Build a Bingo game with Python...", height=120)
+prompt = st.text_area("Prompt", placeholder="e.g. Build a Bingo game in Python...", height=120)
 col1, col2 = st.columns([1,4])
 with col1:
     run = st.button("🚀 Generate with Gemini", type="primary", use_container_width=True)
