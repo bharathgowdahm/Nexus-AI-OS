@@ -1,43 +1,74 @@
 """
-NEXUS AI OS - Single File Standalone for Streamlit Cloud
-Works with ONLY: streamlit, openai, python-dotenv
-No external folders needed - fixes ModuleNotFoundError
+NEXUS AI OS - FREE VERSION with Groq (Llama 3.3 70B) + OpenRouter
+100% FREE - No billing needed - Works with same OpenAI SDK
+Supports: GROQ_API_KEY or OPENROUTER_API_KEY or HF_TOKEN
 """
 import streamlit as st
 import os, asyncio
 from openai import AsyncOpenAI
 
-st.set_page_config(
-    page_title="NEXUS AI OS",
-    page_icon="🧠",
-    layout="wide"
-)
+st.set_page_config(page_title="NEXUS AI OS - FREE", page_icon="🧠", layout="wide")
 
-# --- API KEY from Streamlit Secrets or .env ---
-def get_api_key():
+def get_client():
+    # Try to get FREE keys in order
+    api_key = ""
+    base_url = ""
+    model = "llama-3.3-70b-versatile"
+    
     try:
-        if "OPENAI_API_KEY" in st.secrets:
-            return st.secrets["OPENAI_API_KEY"]
+        # 1. Check Streamlit Secrets for FREE keys
+        if "GROQ_API_KEY" in st.secrets:
+            api_key = st.secrets["GROQ_API_KEY"]
+            base_url = "https://api.groq.com/openai/v1"
+            model = "llama-3.3-70b-versatile"  # FREE & very powerful
+        elif "OPENROUTER_API_KEY" in st.secrets:
+            api_key = st.secrets["OPENROUTER_API_KEY"]
+            base_url = "https://openrouter.ai/api/v1"
+            model = "meta-llama/llama-3.3-70b-instruct:free"  # FREE
+        elif "OPENAI_API_KEY" in st.secrets:
+            api_key = st.secrets["OPENAI_API_KEY"]
+            base_url = None
+            model = "gpt-4o-mini"
     except:
         pass
+    
+    # 2. Check env
+    if not api_key:
+        if os.getenv("GROQ_API_KEY"):
+            api_key = os.getenv("GROQ_API_KEY")
+            base_url = "https://api.groq.com/openai/v1"
+            model = "llama-3.3-70b-versatile"
+        elif os.getenv("OPENROUTER_API_KEY"):
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            base_url = "https://openrouter.ai/api/v1"
+            model = "meta-llama/llama-3.3-70b-instruct:free"
+        elif os.getenv("OPENAI_API_KEY"):
+            api_key = os.getenv("OPENAI_API_KEY")
+            base_url = None
+            model = "gpt-4o-mini"
+    
+    # Load dotenv
     try:
         from dotenv import load_dotenv
         load_dotenv()
     except:
         pass
-    return os.getenv("OPENAI_API_KEY", "")
+    
+    return api_key, base_url, model
 
-api_key = get_api_key()
+api_key, base_url, model_name = get_client()
 
-# --- Orchestrator built-in ---
 class AgentOrchestrator:
-    def __init__(self, api_key=""):
-        self.client = AsyncOpenAI(api_key=api_key) if api_key else None
-        self.model = "gpt-4o-mini"
+    def __init__(self, api_key="", base_url=None, model="llama-3.3-70b-versatile"):
+        if base_url:
+            self.client = AsyncOpenAI(api_key=api_key, base_url=base_url) if api_key else None
+        else:
+            self.client = AsyncOpenAI(api_key=api_key) if api_key else None
+        self.model = model
 
     async def _call(self, system, user):
         if not self.client:
-            return f"[MOCK MODE - Add OPENAI_API_KEY in Secrets]\nSystem: {system[:80]}\nTask: {user[:300]}...\n\n(Add your key in Streamlit Cloud → Manage app → Settings → Secrets to get real AI output)"
+            return "[MOCK MODE - Add FREE GROQ_API_KEY in Secrets]\n\nTo get FREE key:\n1. Go to console.groq.com/keys\n2. Create API key (free)\n3. Add in Streamlit Secrets: GROQ_API_KEY = \"gsk_...\""
         try:
             resp = await self.client.chat.completions.create(
                 model=self.model,
@@ -52,17 +83,16 @@ class AgentOrchestrator:
     async def planner(self, task):
         return await self._call("You are NEXUS Planner Agent. Break tasks into 3-4 clear professional steps.", f"Plan: {task}")
     async def researcher(self, task):
-        return await self._call("You are Researcher Agent. Find best practices, libraries.", f"Research: {task}")
+        return await self._call("You are Researcher Agent. Find best practices.", f"Research: {task}")
     async def coder(self, task, research):
         return await self._call("You are senior Python engineer. Generate PRODUCTION-READY Python code with FastAPI, type hints, docstrings. Return ONLY code in ```python block.", f"Task: {task}\nResearch: {research}\nGenerate code:")
     async def critic(self, code):
         return await self._call("You are Critic Agent. Review for security & quality. Score /100.", f"Review:\n{code[:3000]}")
 
-# --- Memory ---
 if "rag_docs" not in st.session_state:
     st.session_state.rag_docs = []
 if "orchestrator" not in st.session_state:
-    st.session_state.orchestrator = AgentOrchestrator(api_key=api_key)
+    st.session_state.orchestrator = AgentOrchestrator(api_key=api_key, base_url=base_url, model=model_name)
     st.session_state.history = []
 
 def simple_search(query, docs, k=3):
@@ -78,12 +108,25 @@ orchestrator = st.session_state.orchestrator
 
 with st.sidebar:
     st.title("🧠 NEXUS")
-    st.caption("Autonomous AI OS v1.0")
+    st.caption("FREE Edition • Llama 3.3 70B")
     if api_key:
-        st.success("🟢 OpenAI Connected")
+        if "gsk_" in api_key or "groq" in str(base_url).lower():
+            st.success(f"🟢 Groq FREE Connected\n{model_name}")
+        elif "openrouter" in str(base_url).lower():
+            st.success(f"🟢 OpenRouter FREE Connected\n{model_name}")
+        else:
+            st.success(f"🟢 OpenAI Connected\n{model_name}")
     else:
         st.warning("🟡 Mock Mode")
-        st.info('Add Secret:\nOPENAI_API_KEY = "sk-proj-..."')
+        st.markdown("""
+        **Get FREE API key (no billing):**
+        1. Go to [console.groq.com/keys](https://console.groq.com/keys)
+        2. Login → Create API Key (free)
+        3. In Streamlit: Manage app → Settings → Secrets → Add:
+        ```
+        GROQ_API_KEY = "gsk_..."
+        ```
+        """)
     st.divider()
     st.subheader("📚 Memory")
     uploaded = st.file_uploader("Upload .txt/.py/.md", type=["txt","py","md"])
@@ -91,15 +134,14 @@ with st.sidebar:
         content = uploaded.read().decode("utf-8", errors="ignore")[:10000]
         st.session_state.rag_docs.append({"name": uploaded.name, "content": content})
         st.success(f"Indexed: {uploaded.name} | Total: {len(st.session_state.rag_docs)}")
-    st.caption("Built by Bharath | 2026 Trending")
 
 st.title("What should NEXUS build today?")
-st.caption("Planner → Researcher → Coder → Critic swarm • Pure Python")
+st.caption(f"Model: {model_name} • Planner → Researcher → Coder → Critic • 100% FREE")
 
-prompt = st.text_area("Prompt", placeholder="e.g. Build a FastAPI todo API with JWT auth, SQLAlchemy, and pytest...", height=120)
+prompt = st.text_area("Prompt", placeholder="e.g. Build a FastAPI todo API with JWT auth...", height=120)
 col1, col2 = st.columns([1,4])
 with col1:
-    run = st.button("🚀 Generate", type="primary", use_container_width=True)
+    run = st.button("🚀 Generate FREE", type="primary", use_container_width=True)
 with col2:
     clear = st.button("Clear")
 
@@ -110,7 +152,7 @@ if clear:
 async def run_agents(task: str):
     results = simple_search(task, st.session_state.rag_docs)
     rag_ctx = "\n".join([r["content"][:500] for r in results])
-    with st.status("🤖 Agent Swarm Working...", expanded=True) as status:
+    with st.status("🤖 Agent Swarm Working (FREE Llama)...", expanded=True) as status:
         st.write("🧠 Planner...")
         plan = await orchestrator.planner(task)
         st.write(plan)
