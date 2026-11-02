@@ -12,7 +12,7 @@ PROMPTS = {
     "agent": "You are NEXUS Agent. Answer with these Markdown sections in order: ## Plan, ## Research, ## Code (complete code in fenced blocks), ## Review (critique and score /100).",
     "code": "You are a senior engineer. Return complete, production-ready code in fenced blocks, then a short note on how to run it.",
 }
-MODELS = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
+MODELS = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-pro"]
 
 
 def fail(msg, status=500):
@@ -34,8 +34,6 @@ async def chat(request: Request):
     key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
     if not key:
         return fail("No API key set. Add GEMINI_API_KEY in Vercel > Settings > Environment Variables, then redeploy.")
-    if key.startswith("AQ."):
-    return fail('That is an OAuth token. Gemini needs an API key that starts with "AIza".')
     try:
         body = await request.json()
         messages = body["messages"]
@@ -130,7 +128,7 @@ textarea{flex:1;border:0;background:none;resize:none;outline:0;max-height:180px;
 <main class="main">
 <header class="top"><button class="menu" data-a="menu">☰</button>
 <span id="seg"><button data-m="chat" class="on">Chat</button><button data-m="agent">Agent</button><button data-m="code">Code</button></span>
-<select id="model"><option>gemini-2.5-flash</option><option>gemini-2.5-pro</option><option>gemini-2.0-flash</option></select>
+<select id="model"><option>gemini-3.5-flash</option><option>gemini-2.5-flash</option><option>gemini-2.5-pro</option></select>
 <button id="web" data-a="web">Web</button></header>
 <section class="msgs" id="scroll"><div class="col"><h1 id="hero">What are we building today?</h1><div id="msgs"></div></div></section>
 <footer class="comp"><div class="box"><textarea id="in" rows="1" placeholder="Ask anything…"></textarea><button class="send" id="send">Send</button></div></footer>
