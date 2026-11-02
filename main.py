@@ -35,7 +35,7 @@ async def chat(request: Request):
     if not key:
         return fail("No API key set. Add GEMINI_API_KEY in Vercel > Settings > Environment Variables, then redeploy.")
     if key.startswith("AQ."):
-        return fail('That is an OAuth token. Gemini needs an API key that starts with "AIza".')
+    return fail('That is an OAuth token. Gemini needs an API key that starts with "AIza".')
     try:
         body = await request.json()
         messages = body["messages"]
